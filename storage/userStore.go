@@ -26,7 +26,7 @@ type User struct {
 
 type UserInvitation struct {
 	Token      string `db:"token" json:"token"`
-	UserId     string `db:"user_id" json:"user_id"`
+	UserId     int    `db:"user_id" json:"user_id"`
 	Expiration string `db:"expiration" json:"expiration"`
 }
 
@@ -38,6 +38,20 @@ func (s *Storage) GetUserByEmail(email string) (*User, error) {
 	FROM users WHERE email=$1`
 
 	if err := s.db.Get(&user, query, email); err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func (s *Storage) GetUserById(id int) (*User, error) {
+
+	var user User
+
+	query := `SELECT id,email,password,name,is_verified,image_url,role,created_at,updated_at 
+	FROM users WHERE id=$1`
+
+	if err := s.db.Get(&user, query, id); err != nil {
 		return nil, err
 	}
 
@@ -100,4 +114,60 @@ func (s *Storage) CreateUserAndInvitation(email string, password string, token s
 	}
 
 	return user, nil
+}
+
+func (s *Storage) ActivateUserHandler(token string) (*User, error) {
+
+	var activeUser User
+	var err error
+
+	var userInvitation UserInvitation
+
+	query := `SELECT token,user_id,expiration FROM user_invitations WHERE token=$1 AND expiration > $2`
+
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	row := tx.QueryRowx(query, token, time.Now())
+
+	if err := row.StructScan(&userInvitation); err != nil {
+		return nil, err
+	}
+
+	userId := userInvitation.UserId
+	user, err := s.GetUserById(userId)
+	if err != nil {
+		return nil, err
+	}
+
+	// upate is_verified field of this user id and clean up other tries of this
+	verifyUserQuery := `UPDATE users SET is_verified=true WHERE id=$1 
+	RETURNING id,email,password,name,is_verified,image_url,role,created_at,updated_at`
+
+	activatedUserRow := tx.QueryRowx(verifyUserQuery, user.Id)
+	if err := activatedUserRow.StructScan(&activeUser); err != nil {
+		return nil, err
+	}
+
+	// clean up the invitations after user is verified
+	deleteUserInvitationsQuery := `DELETE FROM user_invitations WHERE user_id=$1`
+
+	_, err = tx.Exec(deleteUserInvitationsQuery, activeUser.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &activeUser, nil
 }

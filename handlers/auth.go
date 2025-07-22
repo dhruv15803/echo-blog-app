@@ -15,6 +15,8 @@ import (
 
 	"github.com/dhruv15803/echo-blog-app/mailer"
 	"github.com/dhruv15803/echo-blog-app/storage"
+	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -22,6 +24,10 @@ type RegisterUserPayload struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
+
+var (
+	JWT_SECRET = []byte(os.Getenv("JWT_SECRET"))
+)
 
 func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 	var registerUserPayload RegisterUserPayload
@@ -126,4 +132,70 @@ func GenerateSecureToken(size int) (string, error) {
 	}
 
 	return hex.EncodeToString(bytes), nil
+}
+
+func (h *Handler) ActivateUserHandler(w http.ResponseWriter, r *http.Request) {
+
+	// token from request parameter
+	plainTextToken := chi.URLParam(r, "token")
+
+	// hash plain text token with sha256
+
+	hashedTokenByteArr := sha256.Sum256([]byte(plainTextToken))
+	hashedToken := hex.EncodeToString(hashedTokenByteArr[:])
+
+	activatedUser, err := h.storage.ActivateUserHandler(hashedToken)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "no valid user invite found", http.StatusBadRequest)
+			return
+		} else {
+			log.Printf("failed to activate user by the provided plain text token :- %v\n", err.Error())
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// persist a jwt auth token in a cookie on the client browser on this endpoint
+	claims := jwt.MapClaims{
+		"sub": activatedUser.Id,
+		"exp": time.Now().Add(time.Hour * 24 * 2).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, err := token.SignedString(JWT_SECRET)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var sameSiteConfig http.SameSite
+
+	if os.Getenv("GO_ENV") == "development" {
+		sameSiteConfig = http.SameSiteLaxMode
+	} else {
+		sameSiteConfig = http.SameSiteNoneMode
+	}
+
+	cookie := http.Cookie{
+		Name:     "auth_token",
+		Value:    tokenStr,
+		HttpOnly: true,
+		Secure:   os.Getenv("GO_ENV") == "production",
+		Path:     "/",
+		SameSite: sameSiteConfig,
+	}
+
+	http.SetCookie(w, &cookie)
+
+	type Response struct {
+		Success bool         `json:"success"`
+		Message string       `json:"message"`
+		User    storage.User `json:"user"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "activated and logged in", User: *activatedUser}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 }

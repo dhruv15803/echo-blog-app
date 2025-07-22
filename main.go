@@ -45,8 +45,6 @@ func main() {
 		log.Fatalf("failed to connect to postgres db :- %v\n", err.Error())
 	}
 
-	// layers (storage - data logic , handlers -> request cycle)
-
 	storage := storage.NewStorage(db)
 	handler := handlers.NewHandler(storage)
 

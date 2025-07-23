@@ -54,7 +54,9 @@ func main() {
 		r.Get("/health", handler.HealthCheckHandler)
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", handler.RegisterUserHandler)
+			r.Post("/login", handler.LoginUserHandler)
 			r.Put("/activate/{token}", handler.ActivateUserHandler)
+			r.With(handler.AuthMiddleware).Get("/user", handler.GetAuthUser)
 		})
 	})
 

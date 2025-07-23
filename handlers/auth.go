@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dhruv15803/echo-blog-app/helpers"
 	"github.com/dhruv15803/echo-blog-app/mailer"
 	"github.com/dhruv15803/echo-blog-app/storage"
 	"github.com/go-chi/chi/v5"
@@ -21,6 +22,11 @@ import (
 )
 
 type RegisterUserPayload struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type LoginUserPayload struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
@@ -43,6 +49,16 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	if userEmail == "" || userPassword == "" {
 		writeJSONError(w, "email and password required", http.StatusBadRequest)
+		return
+	}
+
+	if !helpers.IsEmailValid(userEmail) {
+		writeJSONError(w, "incorrect email format", http.StatusBadRequest)
+		return
+	}
+
+	if !helpers.IsPasswordStrong(userPassword) {
+		writeJSONError(w, "weak password", http.StatusBadRequest)
 		return
 	}
 
@@ -134,6 +150,84 @@ func GenerateSecureToken(size int) (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
+func (h *Handler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
+	var loginUserPayload LoginUserPayload
+
+	if err := json.NewDecoder(r.Body).Decode(&loginUserPayload); err != nil {
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	userEmail := strings.ToLower(strings.TrimSpace(loginUserPayload.Email))
+	userPassword := strings.TrimSpace(loginUserPayload.Password)
+
+	if userEmail == "" || userPassword == "" {
+		writeJSONError(w, "email and password required", http.StatusBadRequest)
+		return
+	}
+
+	user, err := h.storage.GetVerifiedUserByEmail(userEmail)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "invalid email or password", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	plainTextUserPassword := userPassword
+	hashedPassword := user.Password
+
+	if err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(plainTextUserPassword)); err != nil {
+		writeJSONError(w, "invalid email or password", http.StatusBadRequest)
+		return
+	}
+
+	claims := jwt.MapClaims{
+		"sub": user.Id,
+		"exp": time.Now().Add(time.Hour * 24 * 2).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, err := token.SignedString(JWT_SECRET)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var sameSiteConfig http.SameSite
+
+	if os.Getenv("GO_ENV") == "development" {
+		sameSiteConfig = http.SameSiteLaxMode
+	} else {
+		sameSiteConfig = http.SameSiteNoneMode
+	}
+
+	cookie := http.Cookie{
+		Name:     "auth_token",
+		Value:    tokenStr,
+		HttpOnly: true,
+		Secure:   os.Getenv("GO_ENV") == "production",
+		Path:     "/",
+		SameSite: sameSiteConfig,
+	}
+
+	http.SetCookie(w, &cookie)
+
+	type Response struct {
+		Success bool         `json:"success"`
+		Message string       `json:"message"`
+		User    storage.User `json:"user"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "user logged in", User: *user}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
 func (h *Handler) ActivateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	// token from request parameter
@@ -195,6 +289,37 @@ func (h *Handler) ActivateUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := writeJSON(w, Response{Success: true, Message: "activated and logged in", User: *activatedUser}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) GetAuthUser(w http.ResponseWriter, r *http.Request) {
+
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		log.Println("failed to assert auth user id from context to type int")
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	type Response struct {
+		Success bool         `json:"success"`
+		User    storage.User `json:"user"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, User: *user}, http.StatusOK); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}

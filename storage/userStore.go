@@ -171,3 +171,18 @@ func (s *Storage) ActivateUserHandler(token string) (*User, error) {
 
 	return &activeUser, nil
 }
+
+func (s *Storage) CreateAdminUser(email string, password string) (*User, error) {
+	var adminUser User
+
+	createAdminUserQuery := `INSERT INTO users(email,password,is_verified,role) VALUES($1,$2,$3,$4) 
+	RETURNING  id,email,password,name,is_verified,image_url,role,created_at,updated_at`
+
+	row := s.db.QueryRowx(createAdminUserQuery, email, password, true, AdminRole)
+
+	if err := row.StructScan(&adminUser); err != nil {
+		return nil, err
+	}
+
+	return &adminUser, nil
+}

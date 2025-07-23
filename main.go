@@ -58,6 +58,10 @@ func main() {
 			r.Put("/activate/{token}", handler.ActivateUserHandler)
 			r.With(handler.AuthMiddleware).Get("/user", handler.GetAuthUser)
 		})
+
+		r.Route("/topic", func(r chi.Router) {
+			r.With(handler.AuthMiddleware).With(handler.AdminMiddleware).Post("/", handler.CreateTopicHandler)
+		})
 	})
 
 	server := http.Server{

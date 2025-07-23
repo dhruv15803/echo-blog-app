@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/dhruv15803/echo-blog-app/storage"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -65,6 +68,36 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 
 		ctx := context.WithValue(r.Context(), AuthUserId, userId)
 		r = r.WithContext(ctx)
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (h *Handler) AdminMiddleware(next http.Handler) http.Handler {
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		userId, ok := r.Context().Value(AuthUserId).(int)
+		if !ok {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		user, err := h.storage.GetUserById(userId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSONError(w, "user not found", http.StatusBadRequest)
+				return
+			} else {
+				writeJSONError(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		if user.Role != storage.AdminRole {
+			writeJSONError(w, "user is not an admin", http.StatusUnauthorized)
+			return
+		}
 
 		next.ServeHTTP(w, r)
 	})

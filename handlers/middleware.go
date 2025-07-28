@@ -89,6 +89,7 @@ func (h *Handler) AdminMiddleware(next http.Handler) http.Handler {
 				writeJSONError(w, "user not found", http.StatusBadRequest)
 				return
 			} else {
+				log.Printf("failed to get user by id :- %v\n", err.Error())
 				writeJSONError(w, "internal server error", http.StatusInternalServerError)
 				return
 			}

@@ -10,6 +10,7 @@ import (
 	"github.com/dhruv15803/echo-blog-app/handlers"
 	"github.com/dhruv15803/echo-blog-app/storage"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/joho/godotenv"
 )
 
@@ -40,18 +41,24 @@ func main() {
 		log.Fatalln("failed to load server config")
 	}
 
-	db, err := db.ConnectToPostgres(cfg.DbConnStr)
+	dbConn, err := db.ConnectToPostgres(cfg.DbConnStr)
 	if err != nil {
 		log.Fatalf("failed to connect to postgres db :- %v\n", err.Error())
 	}
 
-	storage := storage.NewStorage(db)
-	handler := handlers.NewHandler(storage)
+	defer dbConn.Close()
+	log.Println("connected to database!")
+
+	store := storage.NewStorage(dbConn)
+	handler := handlers.NewHandler(store)
 
 	r := chi.NewRouter()
 
 	r.Route("/api", func(r chi.Router) {
+
+		r.Use(middleware.Logger)
 		r.Get("/health", handler.HealthCheckHandler)
+
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", handler.RegisterUserHandler)
 			r.Post("/login", handler.LoginUserHandler)
@@ -61,6 +68,9 @@ func main() {
 
 		r.Route("/topic", func(r chi.Router) {
 			r.With(handler.AuthMiddleware).With(handler.AdminMiddleware).Post("/", handler.CreateTopicHandler)
+			r.With(handler.AuthMiddleware).With(handler.AdminMiddleware).Delete("/{topicId}", handler.DeleteTopicHandler)
+			r.With(handler.AuthMiddleware).With(handler.AdminMiddleware).Put("/{topicId}", handler.UpdateTopicHandler)
+			r.With(handler.AuthMiddleware).Get("/topics", handler.GetTopicsHandler)
 		})
 	})
 

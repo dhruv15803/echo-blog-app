@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/dhruv15803/echo-blog-app/cloudinary"
 	"github.com/dhruv15803/echo-blog-app/db"
 	"github.com/dhruv15803/echo-blog-app/handlers"
 	"github.com/dhruv15803/echo-blog-app/storage"
@@ -15,8 +16,9 @@ import (
 )
 
 type ServerConfig struct {
-	Addr      string
-	DbConnStr string
+	Addr          string
+	DbConnStr     string
+	CloudinaryUrl string
 }
 
 func loadServerConfig() (*ServerConfig, error) {
@@ -27,10 +29,12 @@ func loadServerConfig() (*ServerConfig, error) {
 
 	addr := ":" + os.Getenv("PORT")
 	dbConnStr := os.Getenv("DB_CONN")
+	cloudinaryUrl := os.Getenv("CLOUDINARY_URL")
 
 	return &ServerConfig{
-		Addr:      addr,
-		DbConnStr: dbConnStr,
+		Addr:          addr,
+		DbConnStr:     dbConnStr,
+		CloudinaryUrl: cloudinaryUrl,
 	}, nil
 }
 
@@ -49,8 +53,13 @@ func main() {
 	defer dbConn.Close()
 	log.Println("connected to database!")
 
+	cld, err := cloudinary.NewCloudinaryInstance()
+	if err != nil {
+		log.Fatalf("failed to load cloudinary instance :- %v\n", err.Error())
+	}
+
 	store := storage.NewStorage(dbConn)
-	handler := handlers.NewHandler(store)
+	handler := handlers.NewHandler(store, cld)
 
 	r := chi.NewRouter()
 
@@ -72,6 +81,15 @@ func main() {
 			r.With(handler.AuthMiddleware).With(handler.AdminMiddleware).Delete("/{topicId}", handler.DeleteTopicHandler)
 			r.With(handler.AuthMiddleware).With(handler.AdminMiddleware).Put("/{topicId}", handler.UpdateTopicHandler)
 			r.With(handler.AuthMiddleware).Get("/topics", handler.GetTopicsHandler)
+		})
+
+		r.Route("/blog", func(r chi.Router) {
+			r.Use(handler.AuthMiddleware)
+			r.Post("/", handler.CreateBlogHandler)
+		})
+
+		r.Route("/file", func(r chi.Router) {
+			r.Post("/upload", handler.UploadFileHandler)
 		})
 	})
 

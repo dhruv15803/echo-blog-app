@@ -423,7 +423,6 @@ func (h *Handler) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newPassword := strings.TrimSpace(resetPasswordPayload.Password)
-
 	// hash plain token with sha256 and reset the corresponding user's password with this hashed token
 
 	plainTextTokenBytes := []byte(plainTextToken)

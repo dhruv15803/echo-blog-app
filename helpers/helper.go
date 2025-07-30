@@ -1,6 +1,8 @@
 package helpers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"strings"
 	"unicode/utf8"
 )
@@ -77,4 +79,17 @@ func IsEmailValid(email string) bool {
 	} else {
 		return false
 	}
+}
+
+func GenerateCryptographicToken(byteSize int) (string, error) {
+
+	bytes := make([]byte, byteSize)
+
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
+
+	plainTextToken := hex.EncodeToString(bytes)
+	return plainTextToken, nil
 }

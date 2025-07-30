@@ -55,7 +55,6 @@ func main() {
 	r := chi.NewRouter()
 
 	r.Route("/api", func(r chi.Router) {
-
 		r.Use(middleware.Logger)
 		r.Get("/health", handler.HealthCheckHandler)
 
@@ -63,6 +62,8 @@ func main() {
 			r.Post("/register", handler.RegisterUserHandler)
 			r.Post("/login", handler.LoginUserHandler)
 			r.Put("/activate/{token}", handler.ActivateUserHandler)
+			r.Post("/forgot-password", handler.ForgotPasswordHandler)
+			r.Put("/password-reset/{token}", handler.ResetPasswordHandler)
 			r.With(handler.AuthMiddleware).Get("/user", handler.GetAuthUser)
 		})
 

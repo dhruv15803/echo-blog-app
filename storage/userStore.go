@@ -30,6 +30,12 @@ type UserInvitation struct {
 	Expiration string `db:"expiration" json:"expiration"`
 }
 
+type PasswordReset struct {
+	Token        string `db:"token" json:"token"`
+	UserId       int    `db:"user_id" json:"user_id"`
+	ExpirationAt string `db:"expiration_at" json:"expiration_at"`
+}
+
 func (s *Storage) GetUserByEmail(email string) (*User, error) {
 
 	var user User
@@ -185,4 +191,85 @@ func (s *Storage) CreateAdminUser(email string, password string) (*User, error) 
 	}
 
 	return &adminUser, nil
+}
+
+func (s *Storage) CreatePasswordReset(token string, userId int, expiration time.Time) (*PasswordReset, error) {
+
+	var passwordReset PasswordReset
+
+	query := `INSERT INTO password_resets(token,user_id,expiration_at) VALUES($1,$2,$3) RETURNING token,user_id,expiration_at`
+
+	row := s.db.QueryRowx(query, token, userId, expiration)
+
+	if err := row.StructScan(&passwordReset); err != nil {
+		return nil, err
+	}
+
+	return &passwordReset, nil
+}
+
+func (s *Storage) ResetPassword(newPassword string, token string) (userPtr *User, err error) {
+
+	// search for entry with token
+	// get user id from that query
+	// update user with new password
+	var passwordReset PasswordReset
+	var user User
+
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	query := `SELECT token,user_id,expiration_at FROM password_resets 
+	WHERE token=$1 AND expiration_at > $2`
+
+	row := tx.QueryRowx(query, token, time.Now())
+
+	if err := row.StructScan(&passwordReset); err != nil {
+		return nil, err
+	}
+
+	userId := passwordReset.UserId
+
+	resetPasswordQuery := `UPDATE users
+	SET password=$1 WHERE id=$2 RETURNING 
+	id,email,password,name,is_verified,image_url,role,
+	created_at,updated_at`
+
+	updatedUserRow := tx.QueryRowx(resetPasswordQuery, newPassword, userId)
+
+	if err := updatedUserRow.StructScan(&user); err != nil {
+		return nil, err
+	}
+
+	// remove password reset entry as it has been used once now to update password
+
+	deletePasswordResetQuery := `DELETE FROM password_resets WHERE token=$1`
+
+	result, err := tx.Exec(deletePasswordResetQuery, token)
+	if err != nil {
+		return nil, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	if rowsAffected != 1 {
+		return nil, errors.New("failed to delete password reset")
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &user, nil
 }

@@ -31,6 +31,14 @@ type LoginUserPayload struct {
 	Password string `json:"password"`
 }
 
+type ForgotPasswordPayload struct {
+	Email string `json:"email"`
+}
+
+type ResetPasswordPayload struct {
+	Password string `json:"password"`
+}
+
 var (
 	JWT_SECRET = []byte(os.Getenv("JWT_SECRET"))
 )
@@ -82,7 +90,7 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// send the invitation token to the email with an activation link
-	plainTextToken, err := GenerateSecureToken(32)
+	plainTextToken, err := helpers.GenerateCryptographicToken(32)
 	if err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -320,6 +328,132 @@ func (h *Handler) GetAuthUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := writeJSON(w, Response{Success: true, User: *user}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) ForgotPasswordHandler(w http.ResponseWriter, r *http.Request) {
+
+	var forgotPasswordPayload ForgotPasswordPayload
+
+	if err := json.NewDecoder(r.Body).Decode(&forgotPasswordPayload); err != nil {
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	userEmail := strings.ToLower(strings.TrimSpace(forgotPasswordPayload.Email))
+
+	if userEmail == "" {
+		writeJSONError(w, "email is required", http.StatusBadRequest)
+		return
+	}
+
+	user, err := h.storage.GetVerifiedUserByEmail(userEmail)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	plainTextToken, err := helpers.GenerateCryptographicToken(32)
+	if err != nil {
+		log.Printf("failed to generate token :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	hashedTokenByteArr := sha256.Sum256([]byte(plainTextToken))
+	hashedTokenStr := hex.EncodeToString(hashedTokenByteArr[:])
+	expirationTime := time.Now().Add(time.Minute * 15) // 15 minutes
+
+	_, err = h.storage.CreatePasswordReset(hashedTokenStr, user.Id, expirationTime)
+	if err != nil {
+		log.Printf("failed to create password reset :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	maxRetries := 3
+	currentCount := 0
+	isPasswordResetMailSent := false
+
+	for currentCount < maxRetries {
+
+		if err := mailer.SendGoPasswordResetMail(os.Getenv("GOMAIL_FROM_EMAIL"), user.Email, "Echo BLog Password Reset", "./templates/forgotPassword.html", plainTextToken); err != nil {
+			log.Printf("failed to send password reset mail , retry count - %v", currentCount+1)
+			currentCount++
+		}
+
+		// mail sent
+		isPasswordResetMailSent = true
+		if isPasswordResetMailSent {
+			break
+		}
+	}
+
+	if !isPasswordResetMailSent {
+		log.Printf("failed to sent password reset mail after %v retries", maxRetries)
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	type Response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "password reset email sent successfully"}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
+
+	var resetPasswordPayload ResetPasswordPayload
+	plainTextToken := chi.URLParam(r, "token")
+
+	if err := json.NewDecoder(r.Body).Decode(&resetPasswordPayload); err != nil {
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	newPassword := strings.TrimSpace(resetPasswordPayload.Password)
+
+	// hash plain token with sha256 and reset the corresponding user's password with this hashed token
+
+	plainTextTokenBytes := []byte(plainTextToken)
+	hashedTokenByteArr := sha256.Sum256(plainTextTokenBytes)
+	hashedTokenStr := hex.EncodeToString(hashedTokenByteArr[:])
+
+	// reset password
+	hashedNewPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = h.storage.ResetPassword(string(hashedNewPassword), hashedTokenStr)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "reset not available or already used", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	type Response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "password reset successfull"}, http.StatusOK); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}

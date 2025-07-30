@@ -14,6 +14,11 @@ type InviteMailData struct {
 	ActivationUrl string
 }
 
+type PasswordResetMailData struct {
+	Subject           string
+	PasswordResetLink string
+}
+
 type GoMailConfig struct {
 	GoMailUsername string
 	GoMailPassword string
@@ -49,6 +54,32 @@ func SendGoInvitationMail(fromEmail string, toEmail string, subject string, temp
 	message.SetBody("text/html", body.String())
 
 	dialer := gomail.NewDialer("smtp.gmail.com", 587, goMailCfg.GoMailUsername, goMailCfg.GoMailPassword)
+
+	return dialer.DialAndSend(message)
+}
+
+func SendGoPasswordResetMail(fromEmail string, toEmail string, subject string, templatePath string, plainTextToken string) error {
+	goMailCfg := NewGoMailConfig(os.Getenv("GOMAIL_USERNAME"), os.Getenv("GOMAIL_PASSWORD"), 587)
+	clientUrl := os.Getenv("CLIENT_URL")
+
+	passwordResetLink := fmt.Sprintf("%s/password-reset/%s", clientUrl, plainTextToken)
+
+	tmpl := template.Must(template.ParseFiles(templatePath))
+
+	var body bytes.Buffer
+
+	if err := tmpl.Execute(&body, PasswordResetMailData{Subject: "Password reset mail", PasswordResetLink: passwordResetLink}); err != nil {
+		return err
+	}
+
+	message := gomail.NewMessage()
+
+	message.SetHeader("From", fromEmail)
+	message.SetHeader("To", toEmail)
+	message.SetHeader("Subject", subject)
+	message.SetBody("text/html", body.String())
+
+	dialer := gomail.NewDialer("smtp.gmail.com", goMailCfg.GoMailPort, goMailCfg.GoMailUsername, goMailCfg.GoMailPassword)
 
 	return dialer.DialAndSend(message)
 }

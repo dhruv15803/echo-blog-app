@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/dhruv15803/echo-blog-app/helpers"
 	"github.com/dhruv15803/echo-blog-app/storage"
+	"github.com/go-chi/chi/v5"
 )
 
 type CreateBlogPayload struct {
@@ -104,5 +106,64 @@ func (h *Handler) CreateBlogHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := writeJSON(w, Response{Success: true, Message: "blog created sucessfully", Blog: *newBlog}, http.StatusCreated); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) DeleteBlogHandler(w http.ResponseWriter, r *http.Request) {
+
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	blogId, err := strconv.Atoi(chi.URLParam(r, "blogId"))
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+
+	blog, err := h.storage.GetBlogById(blogId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if user.Id != blog.BlogAuthorId {
+		writeJSONError(w, "user not allowed to delete blog", http.StatusUnauthorized)
+		return
+	}
+
+	// delete blog
+	if err = h.storage.DeleteBlogById(blog.Id); err != nil {
+		log.Printf("failed to delete blog :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	type Response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "blog deleted successfully"}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
 }

@@ -220,6 +220,7 @@ func (h *Handler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 		Secure:   os.Getenv("GO_ENV") == "production",
 		Path:     "/",
 		SameSite: sameSiteConfig,
+		MaxAge:   60 * 60 * 24 * 2,
 	}
 
 	http.SetCookie(w, &cookie)
@@ -286,6 +287,7 @@ func (h *Handler) ActivateUserHandler(w http.ResponseWriter, r *http.Request) {
 		Secure:   os.Getenv("GO_ENV") == "production",
 		Path:     "/",
 		SameSite: sameSiteConfig,
+		MaxAge:   60 * 60 * 24 * 2,
 	}
 
 	http.SetCookie(w, &cookie)

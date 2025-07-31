@@ -1,5 +1,7 @@
 package storage
 
+import "errors"
+
 type Blog struct {
 	Id              int     `db:"id" json:"id"`
 	BlogTitle       string  `db:"blog_title" json:"blog_title"`
@@ -74,5 +76,46 @@ func (s *Storage) CreateBlog(blogTitle string, blogDescription string, blogConte
 	blogWithTopics.Blog = blog
 	blogWithTopics.BlogTopics = topics
 
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+
 	return &blogWithTopics, nil
+}
+
+func (s *Storage) GetBlogById(blogId int) (*Blog, error) {
+
+	var blog Blog
+
+	query := `SELECT id,blog_title,blog_description,blog_content,blog_thumbnail,blog_author_id,blog_created_at,blog_updated_at
+	FROM blogs WHERE id=$1`
+
+	row := s.db.QueryRowx(query, blogId)
+
+	if err := row.StructScan(&blog); err != nil {
+		return nil, err
+	}
+
+	return &blog, nil
+}
+
+func (s *Storage) DeleteBlogById(blogId int) error {
+
+	query := `DELETE FROM blogs WHERE id=$1`
+
+	result, err := s.db.Exec(query, blogId)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected != 1 {
+		return errors.New("failed to delete blog")
+	}
+
+	return nil
 }

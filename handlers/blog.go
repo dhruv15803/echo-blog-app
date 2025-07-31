@@ -23,6 +23,11 @@ type CreateBlogPayload struct {
 	BlogTopicIds    []int  `json:"blog_topic_ids"`
 }
 
+type CreateBlogCommentPayload struct {
+	CommentContent  string `json:"comment_content"`
+	ParentCommentId *int   `json:"parent_comment_id"`
+}
+
 func (h *Handler) CreateBlogHandler(w http.ResponseWriter, r *http.Request) {
 
 	userId, ok := r.Context().Value(AuthUserId).(int)
@@ -251,5 +256,109 @@ func (h *Handler) LikeBlogHandler(w http.ResponseWriter, r *http.Request) {
 		if err := writeJSON(w, Response{Success: true, Message: "removed like sucessfully"}, http.StatusOK); err != nil {
 			writeJSONError(w, "interna server error", http.StatusInternalServerError)
 		}
+	}
+}
+
+func (h *Handler) CreateBlogCommentHandler(w http.ResponseWriter, r *http.Request) {
+
+	var createBlogCommentPayload CreateBlogCommentPayload
+
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	blogId, err := strconv.Atoi(chi.URLParam(r, "blogId"))
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+
+	blog, err := h.storage.GetBlogById(blogId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&createBlogCommentPayload); err != nil {
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	blogCommentContent := strings.TrimSpace(createBlogCommentPayload.CommentContent)
+	isChildComment := createBlogCommentPayload.ParentCommentId != nil
+
+	if blogCommentContent == "" {
+		writeJSONError(w, "comment content is required", http.StatusBadRequest)
+		return
+	}
+
+	var blogComment *storage.BlogComment
+
+	if isChildComment {
+
+		parentCommentId := *createBlogCommentPayload.ParentCommentId
+		// if we are creating  a child comment for this blog
+		// then the parent comment should exist and also should be blog's comment
+
+		parentComment, err := h.storage.GetBlogCommentById(parentCommentId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSONError(w, "parent comment not found", http.StatusBadRequest)
+				return
+			} else {
+				writeJSONError(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		if parentComment.BlogId != blog.Id {
+			writeJSONError(w, "parent comment is not a comment of this blog", http.StatusBadRequest)
+			return
+		}
+
+		blogComment, err = h.storage.CreateChildBlogComment(blogCommentContent, blog.Id, user.Id, parentComment.Id)
+		if err != nil {
+			log.Printf("failed to create child blog comment :- %v\n", err.Error())
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		log.Println(blogComment)
+	} else {
+
+		blogComment, err = h.storage.CreateBlogComment(blogCommentContent, blog.Id, user.Id)
+		if err != nil {
+			log.Printf("failed to create blog comment :- %v\n", err.Error())
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	type Response struct {
+		Success     bool                `json:"success"`
+		Message     string              `json:"message"`
+		BlogComment storage.BlogComment `json:"blog_comment"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "created blog comment", BlogComment: *blogComment}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 	}
 }

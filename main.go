@@ -88,6 +88,7 @@ func main() {
 			r.Post("/", handler.CreateBlogHandler)
 			r.Delete("/{blogId}", handler.DeleteBlogHandler)
 			r.Post("/{blogId}/like", handler.LikeBlogHandler)
+			r.Post("/{blogId}/comment", handler.CreateBlogCommentHandler)
 		})
 
 		r.Route("/file", func(r chi.Router) {

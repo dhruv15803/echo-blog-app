@@ -1,0 +1,2 @@
+ALTER TABLE blog_comments
+RENAME COLUMN comment_created_at TO comment_creatd_at;

@@ -167,3 +167,89 @@ func (h *Handler) DeleteBlogHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+func (h *Handler) LikeBlogHandler(w http.ResponseWriter, r *http.Request) {
+
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	blogId, err := strconv.Atoi(chi.URLParam(r, "blogId"))
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+
+	blog, err := h.storage.GetBlogById(blogId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// if a like by the user already exists on blog
+	// delete like , else create a like
+
+	blogLike, err := h.storage.GetBlogLikeByUser(user.Id, blog.Id)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if blogLike == nil {
+
+		// add like
+		blogLike, err := h.storage.CreateBlogLike(user.Id, blog.Id)
+		if err != nil {
+			log.Printf("failed to create blog like :- %v\n", err.Error())
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		type Response struct {
+			Success  bool             `json:"success"`
+			Message  string           `json:"message"`
+			BlogLike storage.BlogLike `json:"blog_like"`
+		}
+
+		if err := writeJSON(w, Response{Success: true, Message: "liked blog successfully", BlogLike: *blogLike}, http.StatusCreated); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		}
+	} else {
+		// delete like
+
+		if err = h.storage.RemoveLike(blogLike.LikedById, blogLike.LikedBlogId); err != nil {
+			log.Printf("failed to remove blog like :- %v\n", err.Error())
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		type Response struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+
+		if err := writeJSON(w, Response{Success: true, Message: "removed like sucessfully"}, http.StatusOK); err != nil {
+			writeJSONError(w, "interna server error", http.StatusInternalServerError)
+		}
+	}
+}

@@ -87,6 +87,7 @@ func main() {
 			r.Use(handler.AuthMiddleware)
 			r.Post("/", handler.CreateBlogHandler)
 			r.Delete("/{blogId}", handler.DeleteBlogHandler)
+			r.Post("/{blogId}/like", handler.LikeBlogHandler)
 		})
 
 		r.Route("/file", func(r chi.Router) {

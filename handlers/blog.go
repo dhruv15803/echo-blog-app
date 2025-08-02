@@ -438,3 +438,81 @@ func (h *Handler) LikeBlogCommentHandler(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 	}
 }
+
+func (h *Handler) BookmarkBlogHandler(w http.ResponseWriter, r *http.Request) {
+
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	blogId, err := strconv.Atoi(chi.URLParam(r, "blogId"))
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+
+	blog, err := h.storage.GetBlogById(blogId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// check if bookmark by user of this blog already exists
+	blogBookmark, err := h.storage.GetBlogBookmark(user.Id, blog.Id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var responseMsg string
+
+	if blogBookmark == nil {
+
+		// create a bookmark
+		_, err := h.storage.CreateBlogBookmark(user.Id, blog.Id)
+		if err != nil {
+			log.Printf("failed to create blog bookmark :- %v\n", err.Error())
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		responseMsg = "created blog bookmark"
+	} else {
+		// remove a bookmark
+		if err := h.storage.RemoveBlogBookmark(blogBookmark.BookmarkedById, blogBookmark.BookmarkedBlogId); err != nil {
+			log.Printf("failed to remove blog bookmark :- %v\n", err.Error())
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		responseMsg = "remove blog bookmark"
+	}
+
+	type Response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: responseMsg}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}

@@ -89,6 +89,7 @@ func main() {
 			r.Delete("/{blogId}", handler.DeleteBlogHandler)
 			r.Post("/{blogId}/like", handler.LikeBlogHandler)
 			r.Post("/{blogId}/comment", handler.CreateBlogCommentHandler)
+			r.Post("/{blogId}/bookmark", handler.BookmarkBlogHandler)
 			r.Post("/blog-comment/{blogCommentId}/like", handler.LikeBlogCommentHandler)
 		})
 

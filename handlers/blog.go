@@ -495,6 +495,7 @@ func (h *Handler) BookmarkBlogHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		responseMsg = "created blog bookmark"
+
 	} else {
 		// remove a bookmark
 		if err := h.storage.RemoveBlogBookmark(blogBookmark.BookmarkedById, blogBookmark.BookmarkedBlogId); err != nil {

@@ -89,6 +89,7 @@ func main() {
 			r.Delete("/{blogId}", handler.DeleteBlogHandler)
 			r.Post("/{blogId}/like", handler.LikeBlogHandler)
 			r.Post("/{blogId}/comment", handler.CreateBlogCommentHandler)
+			r.Post("/blog-comment/{blogCommentId}/like", handler.LikeBlogCommentHandler)
 		})
 
 		r.Route("/file", func(r chi.Router) {
@@ -110,3 +111,23 @@ func main() {
 		log.Fatalf("failed to start server on port %v\n", cfg.Addr)
 	}
 }
+
+/*
+REST API principles
+
+1] Statelessness - Each API call must contain all info needed (server does not store client context).
+2] Client-Server Separation - Frontend talks to backend via API, but backend doesn't
+care about how the client renders
+3] Uniform interface - Consistent resource URI's, HTTP Methods, standard response codes.
+4] Layered System - You can have multiple layers : proxy , auth middleware, DB Layer
+
+
+Websockets
+
+websocket is a persistent duplex communicataion protocol for
+real time communcactions , it is event drifven  . great
+for real time stuff
+
+
+
+*/

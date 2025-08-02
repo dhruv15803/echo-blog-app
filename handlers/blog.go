@@ -29,7 +29,6 @@ type CreateBlogCommentPayload struct {
 }
 
 func (h *Handler) CreateBlogHandler(w http.ResponseWriter, r *http.Request) {
-
 	userId, ok := r.Context().Value(AuthUserId).(int)
 	if !ok {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
@@ -359,6 +358,83 @@ func (h *Handler) CreateBlogCommentHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := writeJSON(w, Response{Success: true, Message: "created blog comment", BlogComment: *blogComment}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) LikeBlogCommentHandler(w http.ResponseWriter, r *http.Request) {
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	blogCommentId, err := strconv.Atoi(chi.URLParam(r, "blogCommentId"))
+	if err != nil {
+		writeJSONError(w, "invalid request param blogCommentId", http.StatusBadRequest)
+		return
+	}
+
+	blogComment, err := h.storage.GetBlogCommentById(blogCommentId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog comment not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// check if this user has liked this blog comment
+	blogCommentLike, err := h.storage.GetBlogCommentLike(user.Id, blogComment.Id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		log.Printf("failed to get blog comment like :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var responseMsg string
+	if blogCommentLike == nil {
+
+		// create comment like
+		_, err := h.storage.CreateBlogCommentLike(user.Id, blogComment.Id)
+		if err != nil {
+			log.Printf("failed to create blog comment like :- %v\n", err.Error())
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		responseMsg = "create blog comment like"
+
+	} else {
+		// remove blog comment like
+		if err := h.storage.RemoveBlogCommentLike(blogCommentLike.LikedById, blogCommentLike.LikedBlogCommentId); err != nil {
+			log.Printf("failed to remove blog comment like :- %v\n", err.Error())
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		responseMsg = "remove blog comment like"
+	}
+
+	type Response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: responseMsg}, http.StatusOK); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 	}
 }

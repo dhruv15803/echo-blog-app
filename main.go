@@ -93,6 +93,11 @@ func main() {
 			r.Post("/blog-comment/{blogCommentId}/like", handler.LikeBlogCommentHandler)
 		})
 
+		r.Route("/user", func(r chi.Router) {
+			r.Use(handler.AuthMiddleware)
+			r.Post("/{userId}/follow", handler.FollowUserHandler)
+		})
+
 		r.Route("/file", func(r chi.Router) {
 			r.Post("/upload", handler.UploadFileHandler)
 		})

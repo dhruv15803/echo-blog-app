@@ -84,13 +84,18 @@ func main() {
 		})
 
 		r.Route("/blog", func(r chi.Router) {
-			r.Use(handler.AuthMiddleware)
-			r.Post("/", handler.CreateBlogHandler)
-			r.Delete("/{blogId}", handler.DeleteBlogHandler)
-			r.Post("/{blogId}/like", handler.LikeBlogHandler)
-			r.Post("/{blogId}/comment", handler.CreateBlogCommentHandler)
-			r.Post("/{blogId}/bookmark", handler.BookmarkBlogHandler)
-			r.Post("/blog-comment/{blogCommentId}/like", handler.LikeBlogCommentHandler)
+
+			r.Get("/{topicId}/blogs", handler.GetBlogsByTopicHandler)
+
+			r.Group(func(r chi.Router) {
+				r.Use(handler.AuthMiddleware)
+				r.Post("/", handler.CreateBlogHandler)
+				r.Delete("/{blogId}", handler.DeleteBlogHandler)
+				r.Post("/{blogId}/like", handler.LikeBlogHandler)
+				r.Post("/{blogId}/comment", handler.CreateBlogCommentHandler)
+				r.Post("/{blogId}/bookmark", handler.BookmarkBlogHandler)
+				r.Post("/blog-comment/{blogCommentId}/like", handler.LikeBlogCommentHandler)
+			})
 		})
 
 		r.Route("/user", func(r chi.Router) {

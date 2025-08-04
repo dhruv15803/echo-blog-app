@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,6 +28,12 @@ type CreateBlogCommentPayload struct {
 	CommentContent  string `json:"comment_content"`
 	ParentCommentId *int   `json:"parent_comment_id"`
 }
+
+const (
+	likesCountWt     = 0.3
+	commentsCountWt  = 0.5
+	bookmarksCountWt = 0.2
+)
 
 func (h *Handler) CreateBlogHandler(w http.ResponseWriter, r *http.Request) {
 	userId, ok := r.Context().Value(AuthUserId).(int)
@@ -286,6 +293,7 @@ func (h *Handler) CreateBlogCommentHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	blog, err := h.storage.GetBlogById(blogId)
+
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSONError(w, "blog not found", http.StatusBadRequest)
@@ -513,6 +521,69 @@ func (h *Handler) BookmarkBlogHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := writeJSON(w, Response{Success: true, Message: responseMsg}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) GetBlogsByTopicHandler(w http.ResponseWriter, r *http.Request) {
+
+	topicId, err := strconv.Atoi(chi.URLParam(r, "topicId"))
+	if err != nil {
+		writeJSONError(w, "invalid request param topicId", http.StatusBadRequest)
+		return
+	}
+
+	topic, err := h.storage.GetTopicById(topicId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "topic not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	pageNum, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil {
+		writeJSONError(w, "invalid query param page", http.StatusBadRequest)
+		return
+	}
+
+	limitNum, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSONError(w, "invalid query param limit", http.StatusBadRequest)
+		return
+	}
+
+	skip := pageNum*limitNum - limitNum
+
+	blogs, err := h.storage.GetBlogsByTopic(topic.Id, skip, limitNum, likesCountWt, bookmarksCountWt, commentsCountWt)
+	if err != nil {
+		log.Printf("failed to get blogs by topic :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Println(blogs)
+
+	totalBlogsCount, err := h.storage.GetBlogsCountByTopic(topic.Id)
+	if err != nil {
+		log.Printf("failed to get total blogs count by topic :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	noOfPages := int(math.Ceil(float64(totalBlogsCount) / float64(limitNum)))
+
+	type Response struct {
+		Success   bool                       `json:"success"`
+		Blogs     []storage.BlogWithMetaData `json:"blogs"`
+		NoOfPages int                        `json:"no_of_pages"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Blogs: blogs, NoOfPages: noOfPages}, http.StatusOK); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}

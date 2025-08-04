@@ -86,7 +86,7 @@ func main() {
 		r.Route("/blog", func(r chi.Router) {
 
 			r.Get("/{topicId}/blogs", handler.GetBlogsByTopicHandler)
-
+			r.With(handler.AuthMiddleware).Get("/following/blogs", handler.GetBlogsByUserFollowingsHandler)
 			r.Group(func(r chi.Router) {
 				r.Use(handler.AuthMiddleware)
 				r.Post("/", handler.CreateBlogHandler)

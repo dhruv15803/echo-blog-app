@@ -588,3 +588,62 @@ func (h *Handler) GetBlogsByTopicHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 }
+
+func (h *Handler) GetBlogsByUserFollowingsHandler(w http.ResponseWriter, r *http.Request) {
+
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	limitNum, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSONError(w, "invalid query param limit", http.StatusBadRequest)
+		return
+	}
+	pageNum, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil {
+		writeJSONError(w, "invalid query param page", http.StatusBadRequest)
+		return
+	}
+
+	skip := pageNum*limitNum - limitNum
+
+	blogs, err := h.storage.GetBlogsByUserFollowings(user.Id, skip, limitNum, likesCountWt, bookmarksCountWt, commentsCountWt)
+	if err != nil {
+		log.Printf("failed to get blogs by user followings :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	totalBlogsCount, err := h.storage.GetBlogsCountByUserFollowings(user.Id)
+	if err != nil {
+		log.Printf("failed to get total blogs count by user followings :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	noOfPages := int(math.Ceil(float64(totalBlogsCount) / float64(limitNum)))
+
+	type Response struct {
+		Success   bool                       `json:"success"`
+		Blogs     []storage.BlogWithMetaData `json:"blogs"`
+		NoOfPages int                        `json:"no_of_pages"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Blogs: blogs, NoOfPages: noOfPages}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+	}
+}
